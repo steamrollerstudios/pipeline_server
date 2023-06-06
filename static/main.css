@@ -1,0 +1,12 @@
+.row {
+    display: grid;
+    grid-template-columns: 0.1fr 1fr 1fr 1fr;
+}
+.cell {
+    padding: 4px;
+    border: 1px solid black;
+    text-align: center;
+}
+.cell.header {
+    background-color: #eeeeee;
+}
