@@ -1,6 +1,6 @@
 .row {
     display: grid;
-    grid-template-columns: 0.1fr 1fr 1fr 1fr;
+    grid-template-columns: 0.2fr 1fr 1fr 1fr 1fr;
 }
 .cell {
     padding: 4px;
@@ -9,4 +9,9 @@
 }
 .cell.header {
     background-color: #eeeeee;
+}
+.link {
+    cursor: pointer;
+    color: blue;
+    font-weight: bold;
 }
