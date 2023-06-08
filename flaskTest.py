@@ -210,6 +210,7 @@ def getNextJobId(type):
     jobId = 1
     while jobId in ids:
         jobId += 1
+    pipeline_db.commit()
     return jobId
 
 @app.route('/api/publishModel', methods=['POST'])
