@@ -7,6 +7,8 @@ import random
 import subprocess
 from enum import Enum, IntEnum
 import socket
+from threading import Thread
+import time
 
 from steamroller.plasticAPI.workspace import Workspace
 
@@ -50,16 +52,22 @@ def deleteJobFromDb(type, jobId):
 def updateLocalWorkflowInfo():
     dbcursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
     results = dbcursor.fetchall()
+    existingJobsInDb = set()
     for workflow in results:
-        key = "{}_{}".format(workflow['jobtype'].strip(), workflow['jobid'])
+        key = "{}_{}".format(workflow['jobtype'], workflow['jobid'])
+        existingJobsInDb.add(key)
         entry = runningWorkflows[key] if key in runningWorkflows else dict()
         runningWorkflows[key] = entry
         for column in workflow:
-            entry[column] = workflow[column].strip() if isinstance(workflow[column], str) else workflow[column]
+            entry[column] = workflow[column] if isinstance(workflow[column], str) else workflow[column]
+    for (key, workflow) in runningWorkflows.copy().items():
+        if key not in existingJobsInDb:
+            killJob(workflow['jobtype'], workflow['jobid'])
+
     pipeline_db.commit()
 
 def ensureCorrectColumns(data):
-    keys = data.keys()
+    keys = [k for k in data.keys()]
     for key in keys:
         if not key in PIPELINE_COLUMNS:
             data.pop(key)
@@ -71,15 +79,17 @@ def getUpdatedDefaultWorkflow(type, jobId, data):
         'jobtype': type,
         'jobname': '{}_publish'.format(type),
         'jobstatus': 0,
+        'processstatus': None,
         'machinename': HOSTNAME,
         'triggeredby': 'Anonymous',
         'taskstatus': 'Running...',
-        'executorip': '0.0.0.0'
+        'executorip': '0.0.0.0',
+        'logs': None
     }
     result.update(data)
     return result
 
-def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False):
+def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False, insertNew = False):
     if includeDefaults:
         result = getUpdatedDefaultWorkflow(type, jobId, data)
     else:
@@ -88,19 +98,40 @@ def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False):
     result = ensureCorrectColumns(result)
     columns = result.keys()
     values = tuple(result[column] for column in columns)
-    statement = "INSERT INTO {} (%s) VALUES %s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
-    prepared_statement = dbcursor.mogrify(statement, (AsIs(', '.join(columns)), values))
+    if insertNew:
+        statement = "INSERT INTO {} (%s) VALUES %s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+        prepared_statement = dbcursor.mogrify(statement, (AsIs(', '.join(columns)), values))
+    else:
+        if len(values) > 1:
+            statement = "UPDATE {} SET (%s) = %s WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
+        else:
+            statement = "UPDATE {} SET (%s) = ROW(%s) WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
+        prepared_statement = dbcursor.mogrify(statement, (AsIs(', '.join(columns)), values))
     dbcursor.execute(prepared_statement)
     pipeline_db.commit()
 
+def processStatusToJobStatus(status):
+        if status is None:
+            return StatusCode.RUNNING
+        elif status != 0:
+            return StatusCode.FAILED
+        else:
+            return StatusCode.SUCCEEDED
+
 def getStatus(key):
+    parts = key.split('_')
+    type = parts[0]
+    jobId = parts[1]
     if key not in runningWorkflows:
         return -1
     elif 'process' not in runningWorkflows[key]:
         return runningWorkflows[key]['jobstatus']
     else:
         status = runningWorkflows[key]['process'].poll()
-        return status
+        jobStatus = processStatusToJobStatus(status)
+        runningWorkflows[key]['jobstatus'] = jobStatus
+        updateRemoteWorkflowInfo(type, jobId, { 'processstatus': status, 'jobstatus': jobStatus })
+        return jobStatus
 
 def getJobParamFilename(type, jobId):
     if type == 'model':
@@ -128,6 +159,7 @@ def indexTest():
         "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
         "userId": 4994,
         "taskId": 68670,
+        "username": "local.kevin.burns",
         "checkInComment": "Testing full publish pipeline from JSON data"
     }
     output = '<form method="post" action="/api/publishModel">'
@@ -146,33 +178,29 @@ def getTrackedJobs():
     returnDict = dict()
     for (key, workflow) in runningWorkflows.items():
         returnDict[key] = workflow.copy()
-        status = getStatus(key)
-        if status is None:
-            returnDict[key]['jobstatus'] = StatusCode.RUNNING
-        elif status != 0:
-            returnDict[key]['jobstatus'] = StatusCode.FAILED
-        else:
-            returnDict[key]['jobstatus'] = StatusCode.SUCCEEDED
+        jobStatus = getStatus(key)
+        returnDict[key]['jobstatus'] = jobStatus
         returnDict[key]['links'] = {
             'get_status': '/api/jobStatus/{}/{}'.format(returnDict[key]['jobtype'], returnDict[key]['jobid']),
             'kill_job': '/api/killJob/{}/{}'.format(returnDict[key]['jobtype'], returnDict[key]['jobid'])
         }
         returnDict[key].pop('process', -1)
+        returnDict[key].pop('logs')
 
-    return Response(json.dumps(returnDict), mimetype='text/json')
+    return Response(json.dumps(returnDict, default=str), mimetype='text/json')
 
 @app.route('/api/restartJob/<string:type>/<int:jobId>')
 def restartJob(type, jobId):
     jobFile = getJobParamFilename(type, jobId)
     if not os.path.exists(jobFile):
         return Response(json.dumps({'error': '-1'}), mimetype='text/json')
-    
+    deleteJobFromDb(type, jobId)
     with open(jobFile, 'r') as f:
         params = json.load(f)
     
     result = dict()
     if type == 'model':
-        result = triggerModelPublish(jobId, params['repo'])
+        result = triggerModelPublish(jobId, params['repo'], params['username'])
 
     return Response(json.dumps(result), mimetype='text/json')
 
@@ -184,18 +212,32 @@ def runModelPublish():
         jobId = random.randint(1, 99999)
         jobFile = getJobParamFilename('model', jobId)
     with open(jobFile, 'w') as f:
-        f.write(json.dumps(request.form))
+        json.dump(request.form, f)
 
-    ret = triggerModelPublish(jobId, request.form['repo']) # Async
+    ret = triggerModelPublish(jobId, request.form['repo'], request.form['username'])
 
     return Response(json.dumps(ret), mimetype='text/json')
 
+@app.route('/api/viewLogs/<string:type>/<int:jobId>')
+def viewLogs(type, jobId):
+    statement = "SELECT logs FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+
+    dbcursor.execute(statement, (type, jobId))
+    result = dbcursor.fetchone()
+    if result:
+        returnValue = result['logs']
+    else:
+        returnValue = 'No logs found.'
+    pipeline_db.commit()
+    return "<pre>{}</pre>".format(returnValue)
+
 @app.route('/api/jobStatus/<string:type>/<int:jobId>')
 def jobStatus(type, jobId):
+    updateLocalWorkflowInfo()
     ret = {
-        'id': jobId,
-        'type': type,
-        'status': StatusCode.RUNNING,
+        'jobid': jobId,
+        'jobtype': type,
+        'jobstatus': StatusCode.RUNNING,
         'links': {
             'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
             'kill_job': '/api/killJob/{}/{}'.format(type, jobId)
@@ -203,33 +245,29 @@ def jobStatus(type, jobId):
     }
     key = "{}_{}".format(type, jobId)
     if key not in runningWorkflows:
-        ret['status'] = StatusCode.UNTRACKED
+        ret['jobstatus'] = StatusCode.UNTRACKED
     else:
-        status = getStatus(key)
-        if status is None:
-            ret['status'] = StatusCode.RUNNING
-        elif status != 0:
-            ret['status'] = StatusCode.FAILED
-        else:
-            ret['status'] = StatusCode.SUCCEEDED
+        jobStatus = getStatus(key)
+        ret['jobstatus'] = jobStatus
     return Response(json.dumps(ret), mimetype='text/json')
 
 @app.route('/api/cleanJobs/<string:type>', defaults={'forcekill': 0})
 @app.route('/api/cleanJobs/<string:type>/<int:forcekill>')
 def cleanJobs(type, forcekill):
+    updateLocalWorkflowInfo()
     firstSize = len(runningWorkflows)
     killed = 0
     for (key, workflow) in runningWorkflows.copy().items():
         if not key.startswith(type + '_') or not key in runningWorkflows:
             continue
-        status = getStatus(key)
-        if forcekill and status is None:
+        jobStatus = getStatus(key)
+        if forcekill and jobStatus == StatusCode.RUNNING:
             killed += 1
             workflow['process'].terminate()
             removeQuiet(getJobParamFilename(type, workflow['jobid']))
             deleteJobFromDb(type, workflow['jobid'])
             runningWorkflows.pop(key, -1)
-        elif status is not None:
+        elif jobStatus != StatusCode.RUNNING:
             removeQuiet(getJobParamFilename(type, workflow['jobid']))
             deleteJobFromDb(type, workflow['jobid'])
             runningWorkflows.pop(key, -1)
@@ -239,39 +277,66 @@ def cleanJobs(type, forcekill):
 def killJob(type, jobId):
     key = "{}_{}".format(type, jobId)
     ret = {
-        'id': jobId,
-        'type': type,
-        'status': StatusCode.RUNNING,
+        'jobid': jobId,
+        'jobtype': type,
+        'jobstatus': StatusCode.RUNNING,
         'links': {
             'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
             'kill_job': '/api/killJob/{}/{}'.format(type, jobId)
         }
     }
     if key not in runningWorkflows:
-        ret['status'] = StatusCode.UNTRACKED
+        ret['jobstatus'] = StatusCode.UNTRACKED
     else:
-        status = getStatus(key)
-        if status is None:
+        jobStatus = getStatus(key)
+        if jobStatus == StatusCode.RUNNING:
             runningWorkflows[key]['process'].terminate()
-            ret['status'] = StatusCode.SUCCEEDED
-        elif status != 0:
-            ret['status'] = StatusCode.FAILED
+            ret['jobstatus'] = StatusCode.SUCCEEDED
+        elif jobStatus == StatusCode.SUCCEEDED:
+            ret['jobstatus'] = StatusCode.ALREADY_COMPLETE
         else:
-            ret['status'] = StatusCode.ALREADY_COMPLETE
+            ret['jobstatus'] = StatusCode.FAILED
     removeQuiet(getJobParamFilename(type, jobId))
     deleteJobFromDb(type, jobId)
     runningWorkflows.pop(key, -1)
     return Response(json.dumps(ret), mimetype='text/json')
 
-def triggerModelPublish(jobId, repo):
+def threaddedExecutor(callback, *subprocessArgs, **subprocessKwargs):
+    proc = subprocess.Popen(*subprocessArgs, **subprocessKwargs)
+    def pollAndWait():
+        while True:
+            time.sleep(5)
+            status = proc.poll()
+            if status is not None:
+                fullLogs = ''
+                with proc.stdout as output:
+                    fullLogs += output.read().decode()
+                errorLog = ''
+                with proc.stderr as errors:
+                    errorLog += errors.read().decode()
+                if errorLog:
+                    fullLogs += '=========================\n' + errorLog
+                callback(status, fullLogs)
+                break
+
+    thread = Thread(target=pollAndWait)
+    thread.start()
+    return proc
+
+def updateRemoteJobStatus(type, jobId, processStatus, fullLogs = None):
+    status = processStatusToJobStatus(processStatus)
+    updateRemoteWorkflowInfo(type, jobId, {'jobstatus': status, 'processstatus': processStatus, 'logs': fullLogs})
+
+def triggerModelPublish(jobId, repo, username = 'Anonymous'):
     cwd = os.getcwd()
     os.chdir(repo)
     plastic = Workspace()
     plastic.update_workspace(undo_pending = True)
     os.chdir(ConstantPaths.LUIGI_TASK_PATH)
     # subprocess.run(['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stderr=subprocess.STDOUT, check=True)
-    proc = subprocess.Popen(['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stderr=subprocess.STDOUT)
-    
+
+    proc = threaddedExecutor(lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs), ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     workflow = {
         'process': proc,
         'jobid': jobId,
@@ -279,17 +344,19 @@ def triggerModelPublish(jobId, repo):
         'jobname': 'model_publish',
         'machinename': HOSTNAME,
         'jobstatus': 0,
-        'triggeredby': 'Anonymous',
+        'processstatus': None,
+        'triggeredby': username,
         'taskstatus': 'Doing things...',
-        'executorip': socket.gethostbyname(HOSTNAME)
+        'executorip': socket.gethostbyname(HOSTNAME),
+        'logs': None
     }
     runningWorkflows["{}_{}".format('model', jobId)] = workflow
     os.chdir(cwd)
-    updateRemoteWorkflowInfo('model', jobId, workflow, True)
+    updateRemoteWorkflowInfo('model', jobId, workflow, True, True)
     return {
-        'id': jobId,
-        'type': 'model',
-        'status': StatusCode.RUNNING,
+        'jobid': jobId,
+        'jobtype': 'model',
+        'jobstatus': StatusCode.RUNNING,
         'links': {
             'get_status': '/api/jobStatus/model/{}'.format(jobId),
             'kill_job': '/api/killJob/model/{}'.format(jobId)
