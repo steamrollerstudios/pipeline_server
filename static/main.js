@@ -55,7 +55,7 @@ const loadJobList = async () => {
             <div class="cell timestamp">${workflow.starttime}</div>
             <div class="cell">${capitalize(workflow.jobname)}</div>
             <div class="cell">${workflow.triggeredby}</div>
-            <div class="cell">${capitalize(Status[workflow.jobstatus])}</div>
+            <div class="cell ${workflow.jobstatus < 0 ? 'bold red' : workflow.jobstatus > 0 ? 'green' : ''}">${capitalize(Status[workflow.jobstatus])}</div>
             <div class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
     }

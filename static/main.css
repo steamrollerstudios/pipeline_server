@@ -15,3 +15,12 @@
     color: blue;
     font-weight: bold;
 }
+.red {
+    color: #aa0000;
+}
+.bold {
+    font-weight: bold;
+}
+.green {
+    color: #00aa00;
+}

@@ -3,7 +3,6 @@ from flask_cors import CORS
 import sys
 import json
 import os
-import random
 import subprocess
 from enum import Enum, IntEnum
 import socket
@@ -204,12 +203,21 @@ def restartJob(type, jobId):
 
     return Response(json.dumps(result), mimetype='text/json')
 
+def getNextJobId(type):
+    dbcursor.execute('SELECT jobid FROM {} WHERE jobtype=%s'.format(ConstantPaths.PIPELINE_JOBS_TABLE), (type,))
+    results = dbcursor.fetchall()
+    ids = [result['jobid'] for result in results]
+    jobId = 1
+    while jobId in ids:
+        jobId += 1
+    return jobId
+
 @app.route('/api/publishModel', methods=['POST'])
 def runModelPublish():
-    jobId = random.randint(1, 99999)
+    jobId = getNextJobId('model')
     jobFile = getJobParamFilename('model', jobId)
     while os.path.exists(jobFile):
-        jobId = random.randint(1, 99999)
+        jobId += 1
         jobFile = getJobParamFilename('model', jobId)
     with open(jobFile, 'w') as f:
         json.dump(request.form, f)
