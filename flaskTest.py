@@ -50,7 +50,10 @@ def deleteJobFromDb(type, jobId):
 
 def updateLocalWorkflowInfo():
     dbcursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
-    results = dbcursor.fetchall()
+    if dbcursor.description is None:
+        results = []
+    else:
+        results = dbcursor.fetchall()
     existingJobsInDb = set()
     for workflow in results:
         key = "{}_{}".format(workflow['jobtype'], workflow['jobid'])
