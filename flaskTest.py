@@ -19,7 +19,7 @@ from psycopg2.extensions import AsIs
 app = Flask(__name__)
 CORS(app)
 
-pipeline_db = psycopg2.connect(database="pipeline",
+pipeline_db = psycopg2.connect(database="pipelinejobs",
                         host="10.100.0.48",
                         user="steamroller",
                         password="!uQ7Br&wratR",
@@ -38,11 +38,12 @@ class StatusCode(IntEnum):
 
 class ConstantPaths(str, Enum):
     LUIGI_TASK_PATH = r"D:\SteamrollerDev\developerpackages\steamroller\steamroller.tools.publisher\python\steamroller\tools\publisher",
-    PIPELINE_JOBS_TABLE = 'public."Pipeline_Jobs"'
+    PIPELINE_JOBS_TABLE = 'public."jobs"'
 
 HOSTNAME = socket.gethostname()
 dbcursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
 PIPELINE_COLUMNS = tuple(col.name for col in dbcursor.description)
+PROCESS_POLL_INTERVAL = 4
 
 def deleteJobFromDb(type, jobId):
     dbcursor.execute("DELETE FROM {} WHERE jobid = {} AND jobtype = '{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, jobId, type))
@@ -53,7 +54,10 @@ def updateLocalWorkflowInfo():
     if dbcursor.description is None:
         results = []
     else:
-        results = dbcursor.fetchall()
+        try:
+            results = dbcursor.fetchall()
+        except:
+            results = []
     existingJobsInDb = set()
     for workflow in results:
         key = "{}_{}".format(workflow['jobtype'], workflow['jobid'])
@@ -109,8 +113,13 @@ def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False, insertN
         else:
             statement = "UPDATE {} SET (%s) = ROW(%s) WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
         prepared_statement = dbcursor.mogrify(statement, (AsIs(', '.join(columns)), values))
-    dbcursor.execute(prepared_statement)
-    pipeline_db.commit()
+    try:
+        dbcursor.execute(prepared_statement)
+        pipeline_db.commit()
+        return True
+    except:
+        pipeline_db.rollback()
+        return False
 
 def processStatusToJobStatus(status):
         if status is None:
@@ -127,13 +136,13 @@ def getStatus(key):
     if key not in runningWorkflows:
         return -1
     elif 'process' not in runningWorkflows[key]:
-        return runningWorkflows[key]['jobstatus']
+        return runningWorkflows[key]['jobstatus'] if runningWorkflows[key]['taskstatus'].startswith('Success') else -2
     else:
         status = runningWorkflows[key]['process'].poll()
         jobStatus = processStatusToJobStatus(status)
         runningWorkflows[key]['jobstatus'] = jobStatus
         updateRemoteWorkflowInfo(type, jobId, { 'processstatus': status, 'jobstatus': jobStatus })
-        return jobStatus
+        return jobStatus if status != 0 else 1 if runningWorkflows[key]['taskstatus'].startswith('Success') else -2
 
 def getJobParamFilename(type, jobId):
     if type == 'model':
@@ -164,7 +173,7 @@ def indexTest():
         "username": "local.kevin.burns",
         "checkInComment": "Testing full publish pipeline from JSON data"
     }
-    output = '<form method="post" action="/api/publishModel">'
+    output = '<form id="publishForm">'
     
     for key, val in data.items():
         if key == 'publishNotes':
@@ -172,6 +181,29 @@ def indexTest():
         else:
             output += '<input type="{}" name="{}" value="{}">'.format('text' if isinstance(val, str) else 'number', key, val)
     output += '<button>Submit</button></form>'
+    output += '''
+    <script type="text/javascript">
+        const theForm = document.getElementById("publishForm");
+        theForm.addEventListener("submit", e => {
+            const current = theForm.innerHTML;
+            e.preventDefault();
+            const data = new FormData(theForm);
+            const json = Object.fromEntries(data);
+            theForm.innerHTML = 'Submitting job...';
+            fetch('/api/publishModel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(json)
+            })
+            .then(res => res.json())
+            .then(jsonResponse => theForm.innerHTML = '<pre>' + JSON.stringify(jsonResponse) + '</pre>')
+            .catch(e => theForm.innerHTML = current);
+            return false;
+        });
+    </script>
+    '''
     return output
 
 @app.route('/api/getTrackedJobs')
@@ -206,6 +238,14 @@ def restartJob(type, jobId):
 
     return Response(json.dumps(result), mimetype='text/json')
 
+@app.route('/api/updateTaskStatus/<string:type>/<int:jobId>', methods=['POST'])
+def updateTaskStatus(type, jobId):
+    statusData = {
+        'taskstatus': request.json['taskstatus']
+    }
+    success = updateRemoteWorkflowInfo(type, jobId, statusData)
+    return Response(json.dumps({'success': success }), mimetype='text/json')
+
 def getNextJobId(type):
     dbcursor.execute('SELECT jobid FROM {} WHERE jobtype=%s'.format(ConstantPaths.PIPELINE_JOBS_TABLE), (type,))
     results = dbcursor.fetchall()
@@ -224,9 +264,9 @@ def runModelPublish():
         jobId += 1
         jobFile = getJobParamFilename('model', jobId)
     with open(jobFile, 'w') as f:
-        json.dump(request.form, f)
+        json.dump(request.json, f)
 
-    ret = triggerModelPublish(jobId, request.form['repo'], request.form['username'])
+    ret = triggerModelPublish(jobId, request.json['repo'], request.json['username'])
 
     return Response(json.dumps(ret), mimetype='text/json')
 
@@ -273,7 +313,7 @@ def cleanJobs(type, forcekill):
         if not key.startswith(type + '_') or not key in runningWorkflows:
             continue
         jobStatus = getStatus(key)
-        if forcekill and jobStatus == StatusCode.RUNNING:
+        if forcekill and jobStatus == StatusCode.RUNNING and 'process' in workflow[key]:
             killed += 1
             workflow['process'].terminate()
             removeQuiet(getJobParamFilename(type, workflow['jobid']))
@@ -316,27 +356,39 @@ def killJob(type, jobId):
 def threaddedExecutor(callback, *subprocessArgs, **subprocessKwargs):
     proc = subprocess.Popen(*subprocessArgs, **subprocessKwargs)
     def pollAndWait():
+        fullLogs = ''
+        errorLog = ''
+        attempts = 0
         while True:
-            time.sleep(5)
             status = proc.poll()
+            try:
+                output = proc.stdout.read1().decode('utf-8')
+                elog = proc.stderr.read1().decode('utf-8')
+                fullLogs += output
+                errorLog += elog
+                print('OUT: {}'.format(output), end='', flush=True)
+                print('ERR: {}'.format(elog), end='', flush=True)
+            except:
+                attempts += 1
+                print('Attempted {} times'.format(attempts))
             if status is not None:
-                fullLogs = ''
-                with proc.stdout as output:
-                    fullLogs += output.read().decode()
-                errorLog = ''
-                with proc.stderr as errors:
-                    errorLog += errors.read().decode()
-                if errorLog:
-                    fullLogs += '=========================\n' + errorLog
-                callback(status, fullLogs)
                 break
+        
+        print('DONE WITH THE SUBPROCESS!', end='', flush=True)
+        if errorLog:
+            fullLogs += '=========================\n' + errorLog
+        callback(status, fullLogs)
 
     thread = Thread(target=pollAndWait)
     thread.start()
     return proc
 
 def updateRemoteJobStatus(type, jobId, processStatus, fullLogs = None):
-    status = processStatusToJobStatus(processStatus)
+    updateLocalWorkflowInfo()
+    if processStatus != 0:
+        status = processStatusToJobStatus(processStatus)
+    else:
+        status = 0 if runningWorkflows["{}_{}".format('model', jobId)]['taskstatus'].startswith('Success') else -2
     updateRemoteWorkflowInfo(type, jobId, {'jobstatus': status, 'processstatus': processStatus, 'logs': fullLogs})
 
 def triggerModelPublish(jobId, repo, username = 'Anonymous'):
@@ -346,8 +398,13 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
     plastic.update_workspace(undo_pending = True)
     os.chdir(ConstantPaths.LUIGI_TASK_PATH)
     # subprocess.run(['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stderr=subprocess.STDOUT, check=True)
-
-    proc = threaddedExecutor(lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs), ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.environ["PYTHONUNBUFFERED"] = "1"
+    proc = threaddedExecutor(
+        lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs),
+        ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
 
     workflow = {
         'process': proc,
@@ -358,13 +415,13 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
         'jobstatus': 0,
         'processstatus': None,
         'triggeredby': username,
-        'taskstatus': 'Doing things...',
+        'taskstatus': '...',
         'executorip': socket.gethostbyname(HOSTNAME),
         'logs': None
     }
+    updateRemoteWorkflowInfo('model', jobId, workflow, True, True)
     runningWorkflows["{}_{}".format('model', jobId)] = workflow
     os.chdir(cwd)
-    updateRemoteWorkflowInfo('model', jobId, workflow, True, True)
     return {
         'jobid': jobId,
         'jobtype': 'model',
@@ -374,3 +431,6 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
             'kill_job': '/api/killJob/model/{}'.format(jobId)
         }
     }
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
