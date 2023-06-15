@@ -8,6 +8,7 @@ from enum import Enum, IntEnum
 import socket
 from threading import Thread
 import time
+import tempfile
 
 from steamroller.plasticAPI.workspace import Workspace
 
@@ -354,29 +355,32 @@ def killJob(type, jobId):
     return Response(json.dumps(ret), mimetype='text/json')
 
 def threaddedExecutor(callback, *subprocessArgs, **subprocessKwargs):
-    proc = subprocess.Popen(*subprocessArgs, **subprocessKwargs)
+    logFile = tempfile.TemporaryFile(mode='w+', encoding='latin1')
+    errLogFile = tempfile.TemporaryFile(mode='w+', encoding='latin1')
+    proc = subprocess.Popen(
+        *subprocessArgs,
+        **subprocessKwargs,
+        stdout=logFile,
+        stderr=errLogFile,
+        encoding='latin1'
+    )
     def pollAndWait():
         fullLogs = ''
         errorLog = ''
-        attempts = 0
+        status = None
         while True:
             status = proc.poll()
-            try:
-                output = proc.stdout.read1().decode('utf-8')
-                elog = proc.stderr.read1().decode('utf-8')
-                fullLogs += output
-                errorLog += elog
-                print('OUT: {}'.format(output), end='', flush=True)
-                print('ERR: {}'.format(elog), end='', flush=True)
-            except:
-                attempts += 1
-                print('Attempted {} times'.format(attempts))
             if status is not None:
                 break
         
-        print('DONE WITH THE SUBPROCESS!', end='', flush=True)
+        logFile.seek(0)
+        errLogFile.seek(0)
+        fullLogs = logFile.read()
+        errorLog = errLogFile.read()
         if errorLog:
             fullLogs += '=========================\n' + errorLog
+        logFile.close()
+        errLogFile.close()
         callback(status, fullLogs)
 
     thread = Thread(target=pollAndWait)
@@ -401,9 +405,7 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
     os.environ["PYTHONUNBUFFERED"] = "1"
     proc = threaddedExecutor(
         lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs),
-        ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)]
     )
 
     workflow = {
