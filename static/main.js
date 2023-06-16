@@ -13,8 +13,8 @@ const capitalize = str => {
     return str.split(/[ _]/g).map(word => word[0].toUpperCase() + word.slice(1).toLowerCase()).join(' ');
 }
 
-const killJob = async url => {
-    const response = await fetch(url);
+const killJob = async (type, jobId) => {
+    const response = await fetch(`/api/killJob/${type}/${jobId}`);
     const json = await response.json();
     await loadJobList();
 }
@@ -30,6 +30,63 @@ const viewLogs = async (type, jobId) => {
     window.open(`/api/viewLogs/${type}/${jobId}`, '_blank');
 }
 
+const menuHandler = (ev, jobtype, jobid, jobstatus) => {
+    const menu = document.getElementById('actionMenu');
+    const killLink =  document.getElementById('actionMenu_kill');
+    const newKillLink = killLink.cloneNode(true);
+    killLink.replaceWith(newKillLink);
+    newKillLink.addEventListener('click', () => {
+        killJob(jobtype, jobid);
+    });
+    if (jobstatus != 0 && jobstatus !== null) {
+        newKillLink.textContent ='Remove Job';
+        
+        const restartLink = document.getElementById('actionMenu_restart');
+        const newRestartLink = restartLink.cloneNode(true);
+        restartLink.replaceWith(newRestartLink);
+        newRestartLink.style.display = 'block';
+        newRestartLink.addEventListener('click', () => {
+            restartJob(jobtype, jobid);
+        });
+        
+        const logLink = document.getElementById('actionMenu_viewLogs')
+        const newLogLink = logLink.cloneNode(true);
+        logLink.replaceWith(newLogLink);
+        newLogLink.style.display = 'block';
+        newLogLink.addEventListener('click', () => {
+            viewLogs(jobtype, jobid);
+        });
+    }
+    else {
+        document.getElementById('actionMenu_kill').textContent ='Abort Job';
+        document.getElementById('actionMenu_restart').style.display = 'none';
+        document.getElementById('actionMenu_viewLogs').style.display = 'none';
+    }
+    const cells = document.querySelectorAll('.cell[data-id][data-type]');
+    for (let cell of cells) {
+        if (cell.dataset.type == jobtype && cell.dataset.id == jobid) {
+            cell.classList.add('selected');
+        } else {
+            cell.classList.remove('selected');
+        }
+    }
+    menu.style.left = `${ev.pageX}px`;
+    menu.style.top = `${ev.pageY}px`;
+    menu.style.display = 'grid';
+
+    // console.log(jobname, jobid, jobstatus);
+    ev.preventDefault();
+    return false;
+}
+const clearContextMenu = () => {
+    document.getElementById('actionMenu').style.display = 'none';
+    const cells = document.querySelectorAll('.cell[data-id][data-type]');
+    for (let cell of cells) {
+        cell.classList.remove('selected');
+    }
+}
+document.addEventListener('click', clearContextMenu);
+
 const loadJobList = async () => {
     const response = await fetch('/api/getTrackedJobs');
     const json = await response.json();
@@ -37,7 +94,6 @@ const loadJobList = async () => {
     let output = `
     <div class="row">
         <div class="cell header">Status</div>
-        <div class="cell header">Actions</div>
         <div class="cell header">Job ID</div>
         <div class="cell header">Start Time</div>
         <div class="cell header">Type</div>
@@ -47,42 +103,21 @@ const loadJobList = async () => {
     `;
     for (let workflow of Object.values(json)) {
         output += `
-            <div class="cell bold ${workflow.jobstatus < 0 ? 'redbg white' : workflow.jobstatus > 0 ? 'greenbg white' : 'bluebg'}">${capitalize(Status[workflow.jobstatus])}</div>
-            <div class="cell">
-                <span class="link" id="killLink${workflow.jobid}">❌</span> 
-                ${workflow.jobstatus != 0 && workflow.jobstatus !== null ? `<span class="link" id="restartLink${workflow.jobid}">🔃</span>` : ''}
-                ${workflow.jobstatus != 0 && workflow.jobstatus !== null ? `<span class="link" id="logLink${workflow.jobid}">📄</span>` : ''}
-            </div>
-            <div class="cell">${workflow.jobid}</div>
-            <div class="cell timestamp">${workflow.starttime}</div>
-            <div class="cell">${capitalize(workflow.jobname)}</div>
-            <div class="cell">${workflow.triggeredby}</div>
-            <div class="cell">${workflow.taskstatus}</div>
-            <div class="cell">${workflow.machinename} (${workflow.executorip})</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell bold ${workflow.jobstatus < 0 ? 'redbg white' : workflow.jobstatus > 0 ? 'greenbg white' : 'bluebg'}">${capitalize(Status[workflow.jobstatus])}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.jobid}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell timestamp">${workflow.starttime}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${capitalize(workflow.jobname)}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.triggeredby}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.taskstatus}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
     }
     mainDiv.innerHTML = output + '</div>';
+
     for (let workflow of Object.values(json)) {
-        const killLink = document.getElementById(`killLink${workflow.jobid}`);
-        killLink.title = (workflow.jobstatus != 0 && workflow.jobstatus !== null ? 'Remove' : 'Abort') + ' Job';
-        killLink.addEventListener('click', () => {
-            killJob(workflow.links.kill_job);
-        });
-
-        const restartLink = document.getElementById(`restartLink${workflow.jobid}`);
-        if (restartLink) {
-            restartLink.title = 'Restart Job'
-            restartLink.addEventListener('click', () => {
-                restartJob(workflow.jobtype, workflow.jobid);
-            });
-        }
-
-        const logLink = document.getElementById(`logLink${workflow.jobid}`);
-        if (logLink) {
-            logLink.title = 'View Logs'
-            logLink.addEventListener('click', () => {
-                viewLogs(workflow.jobtype, workflow.jobid);
-            });
+        const rowCells = document.querySelectorAll(`.cell[data-type="${workflow.jobtype}"][data-id="${workflow.jobid}"]`)
+        for (let cell of rowCells) {
+            cell.addEventListener('contextmenu', ev => menuHandler(ev, workflow.jobtype, workflow.jobid, workflow.jobstatus));
         }
     }
 }

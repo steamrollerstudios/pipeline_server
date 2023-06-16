@@ -1,11 +1,13 @@
 .row {
     display: grid;
-    grid-template-columns: 0.5fr 0.3fr 0.2fr 1fr 1fr 0.5fr 0.5fr 1fr;
+    grid-template-columns: 0.5fr 0.2fr 1fr 1fr 0.5fr 0.5fr 1fr;
 }
 .cell {
     padding: 4px;
     border: 1px solid black;
     text-align: center;
+    background-color: #ffffff;
+    transition: 0.15s;
 }
 .cell.header {
     background-color: #eeeeee;
@@ -30,4 +32,26 @@
 }
 .bold {
     font-weight: bold;
+}
+
+#actionMenu {
+    display: none;
+    position: absolute;
+    border: 1px solid black;
+    border-radius: 1px;
+    background-color: #ffffff;
+    left: 0px;
+    top: 0px;
+    grid-template-columns: 1fr;
+}
+#actionMenu div {
+    padding: 2px;
+    border: 1px solid black;
+    cursor: default;
+}
+#actionMenu div:hover {
+    background-color: #dddddd;
+}
+.cell.selected {
+    filter: brightness(75%);
 }

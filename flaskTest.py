@@ -54,10 +54,12 @@ def updateLocalWorkflowInfo():
     dbcursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
     if dbcursor.description is None:
         results = []
+        print('no desc')
     else:
         try:
             results = dbcursor.fetchall()
         except:
+            print('failed to fetch')
             results = []
 
     existingJobsInDb = set()
@@ -70,6 +72,8 @@ def updateLocalWorkflowInfo():
             entry[column] = workflow[column] if isinstance(workflow[column], str) else workflow[column]
     for (key, workflow) in runningWorkflows.copy().items():
         if key not in existingJobsInDb:
+            print('NOT IN DB: {}_{}'.format(workflow['jobtype'], workflow['jobid']))
+            print(existingJobsInDb)
             killJob(workflow['jobtype'], workflow['jobid'])
 
     pipeline_db.commit()
@@ -144,7 +148,7 @@ def getStatus(key):
     jobId = parts[1]
     if key not in runningWorkflows:
         return -1
-    elif 'process' not in runningWorkflows[key]:
+    elif 'process' not in runningWorkflows[key] or runningWorkflows[key]['process'] is None:
         return runningWorkflows[key]['jobstatus'] if runningWorkflows[key]['taskstatus'].startswith('Success') else -2
     else:
         status = runningWorkflows[key]['process'].poll()
@@ -339,10 +343,15 @@ def cleanJobs(type, forcekill):
 @app.route('/api/killJob/<string:type>/<int:jobId>')
 def killJob(type, jobId):
     key = "{}_{}".format(type, jobId)
+    print('KILLING ${}'.format(key))
     statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
     dbcursor.execute(statement, (type, jobId))
-    result = dbcursor.fetchone()
-    pipeline_db.commit()
+    try:
+        result = dbcursor.fetchone()
+        pipeline_db.commit()
+    except:
+        result = None
+        pipeline_db.rollback()
 
     if not result:
         return Response(json.dumps({'error': -1}), mimetype='text/json')
