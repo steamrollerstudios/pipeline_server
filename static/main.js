@@ -42,6 +42,7 @@ const loadJobList = async () => {
         <div class="cell header">Type</div>
         <div class="cell header">Username</div>
         <div class="cell header">Status</div>
+        <div class="cell header">Most Recent Step</div>
         <div class="cell header">Machine</div>
     `;
     for (let workflow of Object.values(json)) {
@@ -56,6 +57,7 @@ const loadJobList = async () => {
             <div class="cell">${capitalize(workflow.jobname)}</div>
             <div class="cell">${workflow.triggeredby}</div>
             <div class="cell ${workflow.jobstatus < 0 ? 'bold red' : workflow.jobstatus > 0 ? 'green' : ''}">${capitalize(Status[workflow.jobstatus])}</div>
+            <div class="cell">${workflow.taskstatus}</div>
             <div class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
     }
