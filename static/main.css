@@ -1,6 +1,6 @@
 .row {
     display: grid;
-    grid-template-columns: 0.3fr 0.2fr 1fr 1fr 0.5fr 0.5fr 0.5fr 1fr;
+    grid-template-columns: 0.5fr 0.3fr 0.2fr 1fr 1fr 0.5fr 0.5fr 1fr;
 }
 .cell {
     padding: 4px;
@@ -15,12 +15,19 @@
     color: blue;
     font-weight: bold;
 }
-.red {
-    color: #aa0000;
+.redbg {
+    background-color: #f07c7c;
+}
+.greenbg {
+    background-color: #7cf07c;
+}
+.bluebg {
+    background-color: #7ac9c9;
+}
+.white {
+    color: #ffffff;
+    font-family: sans-serif;
 }
 .bold {
     font-weight: bold;
-}
-.green {
-    color: #00aa00;
 }

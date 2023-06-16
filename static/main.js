@@ -36,17 +36,18 @@ const loadJobList = async () => {
     mainDiv.innerHTML = '';
     let output = `
     <div class="row">
+        <div class="cell header">Status</div>
         <div class="cell header">Actions</div>
         <div class="cell header">Job ID</div>
         <div class="cell header">Start Time</div>
         <div class="cell header">Type</div>
         <div class="cell header">Username</div>
-        <div class="cell header">Status</div>
         <div class="cell header">Most Recent Step</div>
         <div class="cell header">Machine</div>
     `;
     for (let workflow of Object.values(json)) {
         output += `
+            <div class="cell bold ${workflow.jobstatus < 0 ? 'redbg white' : workflow.jobstatus > 0 ? 'greenbg white' : 'bluebg'}">${capitalize(Status[workflow.jobstatus])}</div>
             <div class="cell">
                 <span class="link" id="killLink${workflow.jobid}">❌</span> 
                 ${workflow.jobstatus != 0 && workflow.jobstatus !== null ? `<span class="link" id="restartLink${workflow.jobid}">🔃</span>` : ''}
@@ -56,7 +57,6 @@ const loadJobList = async () => {
             <div class="cell timestamp">${workflow.starttime}</div>
             <div class="cell">${capitalize(workflow.jobname)}</div>
             <div class="cell">${workflow.triggeredby}</div>
-            <div class="cell ${workflow.jobstatus < 0 ? 'bold red' : workflow.jobstatus > 0 ? 'green' : ''}">${capitalize(Status[workflow.jobstatus])}</div>
             <div class="cell">${workflow.taskstatus}</div>
             <div class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
