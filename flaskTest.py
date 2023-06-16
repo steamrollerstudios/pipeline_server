@@ -97,6 +97,13 @@ def getUpdatedDefaultWorkflow(type, jobId, data):
     result.update(data)
     return result
 
+def getResponseLinks(type, jobId):
+    return {
+            'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
+            'kill_job': '/api/killJob/{}/{}'.format(type, jobId),
+            'restart_job': '/api/restartJob/{}/{}'.format(type, jobId)
+    }
+
 def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False, insertNew = False):
     if includeDefaults:
         result = getUpdatedDefaultWorkflow(type, jobId, data)
@@ -216,10 +223,7 @@ def getTrackedJobs():
         returnDict[key] = workflow.copy()
         jobStatus = getStatus(key)
         returnDict[key]['jobstatus'] = jobStatus
-        returnDict[key]['links'] = {
-            'get_status': '/api/jobStatus/{}/{}'.format(returnDict[key]['jobtype'], returnDict[key]['jobid']),
-            'kill_job': '/api/killJob/{}/{}'.format(returnDict[key]['jobtype'], returnDict[key]['jobid'])
-        }
+        returnDict[key]['links'] = getResponseLinks(returnDict[key]['jobtype'], returnDict[key]['jobid'])
         returnDict[key].pop('process', -1)
         returnDict[key].pop('logs')
 
@@ -304,10 +308,7 @@ def jobStatus(type, jobId):
         'jobid': jobId,
         'jobtype': type,
         'jobstatus': StatusCode.RUNNING,
-        'links': {
-            'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
-            'kill_job': '/api/killJob/{}/{}'.format(type, jobId)
-        }
+        'links': getResponseLinks(type, jobId)
     }
     key = "{}_{}".format(type, jobId)
     if key not in runningWorkflows:
@@ -327,16 +328,12 @@ def cleanJobs(type, forcekill):
         if not key.startswith(type + '_') or not key in runningWorkflows:
             continue
         jobStatus = getStatus(key)
-        if forcekill and jobStatus == StatusCode.RUNNING and 'process' in workflow[key]:
-            killed += 1
-            workflow['process'].terminate()
-            removeQuiet(getJobParamFilename(type, workflow['jobid']))
-            deleteJobFromDb(type, workflow['jobid'])
+        if forcekill or jobStatus != StatusCode.RUNNING:
+            if jobStatus == StatusCode.RUNNING:
+                killed += 1
+            killJob(type, workflow['jobid'])
             runningWorkflows.pop(key, -1)
-        elif jobStatus != StatusCode.RUNNING:
-            removeQuiet(getJobParamFilename(type, workflow['jobid']))
-            deleteJobFromDb(type, workflow['jobid'])
-            runningWorkflows.pop(key, -1)
+
     return Response(json.dumps({ 'jobs_killed': killed, 'jobs_cleaned': firstSize - len(runningWorkflows) }), mimetype='text/json')
 
 @app.route('/api/killJob/<string:type>/<int:jobId>')
@@ -355,10 +352,7 @@ def killJob(type, jobId):
             'jobid': jobId,
             'jobtype': type,
             'jobstatus': StatusCode.RUNNING,
-            'links': {
-                'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
-                'kill_job': '/api/killJob/{}/{}'.format(type, jobId)
-            }
+            'links': getResponseLinks(type, jobId)
         }
         if key not in runningWorkflows:
             ret['jobstatus'] = StatusCode.UNTRACKED
@@ -455,10 +449,7 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
         'jobid': jobId,
         'jobtype': 'model',
         'jobstatus': StatusCode.RUNNING,
-        'links': {
-            'get_status': '/api/jobStatus/model/{}'.format(jobId),
-            'kill_job': '/api/killJob/model/{}'.format(jobId)
-        }
+        'links': getResponseLinks('model', jobId)
     }
 
 if __name__ == '__main__':
