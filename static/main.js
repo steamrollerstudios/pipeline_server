@@ -19,6 +19,12 @@ const killJob = async (type, jobId) => {
     await loadJobList();
 }
 
+const removeJob = async (type, jobId) => {
+    const response = await fetch(`/api/removeJob/${type}/${jobId}`);
+    const json = await response.json();
+    await loadJobList();
+}
+
 const restartJob = async (type, jobId) => {
     const response = await fetch(`/api/restartJob/${type}/${jobId}`);
     const json = await response.json();
@@ -35,11 +41,12 @@ const menuHandler = (ev, jobtype, jobid, jobstatus) => {
     const killLink =  document.getElementById('actionMenu_kill');
     const newKillLink = killLink.cloneNode(true);
     killLink.replaceWith(newKillLink);
-    newKillLink.addEventListener('click', () => {
-        killJob(jobtype, jobid);
-    });
+
     if (jobstatus != 0 && jobstatus !== null) {
         newKillLink.textContent ='Remove Job';
+        newKillLink.addEventListener('click', () => {
+            removeJob(jobtype, jobid);
+        });
         
         const restartLink = document.getElementById('actionMenu_restart');
         const newRestartLink = restartLink.cloneNode(true);
@@ -58,6 +65,9 @@ const menuHandler = (ev, jobtype, jobid, jobstatus) => {
         });
     }
     else {
+        newKillLink.addEventListener('click', () => {
+            killJob(jobtype, jobid);
+        });
         document.getElementById('actionMenu_kill').textContent ='Abort Job';
         document.getElementById('actionMenu_restart').style.display = 'none';
         document.getElementById('actionMenu_viewLogs').style.display = 'none';

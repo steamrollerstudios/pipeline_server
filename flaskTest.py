@@ -44,28 +44,28 @@ HOSTNAME = socket.gethostname()
 def getDbCursor():
     return pipeline_db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-columnReader = getDbCursor()
-columnReader.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
-PIPELINE_COLUMNS = tuple(col.name for col in columnReader.description)
+with getDbCursor() as columnReader:
+    columnReader.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
+    PIPELINE_COLUMNS = tuple(col.name for col in columnReader.description)
 PROCESS_POLL_INTERVAL = 4
 
 def deleteJobFromDb(type, jobId):
-    deleteCursor = getDbCursor()
-    statement = "DELETE FROM {} WHERE jobid = {} AND jobtype = '{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, jobId, type)
-    deleteCursor.execute(statement)
-    pipeline_db.commit()
+    with getDbCursor() as deleteCursor:
+        statement = "DELETE FROM {} WHERE jobid = {} AND jobtype = '{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, jobId, type)
+        deleteCursor.execute(statement)
+        pipeline_db.commit()
 
 def updateLocalWorkflowInfo():
-    updateCursor = getDbCursor()
-    updateCursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
-    if updateCursor.description is None:
-        results = []
-    else:
-        try:
-            results = updateCursor.fetchall()
-        except:
+    with getDbCursor() as updateCursor:
+        updateCursor.execute('SELECT * FROM {}'.format(ConstantPaths.PIPELINE_JOBS_TABLE))
+        if updateCursor.description is None:
             results = []
-    pipeline_db.commit()
+        else:
+            try:
+                results = updateCursor.fetchall()
+            except:
+                results = []
+        pipeline_db.commit()
 
     existingJobsInDb = set()
     for workflow in results:
@@ -77,7 +77,7 @@ def updateLocalWorkflowInfo():
             entry[column] = workflow[column] if isinstance(workflow[column], str) else workflow[column]
     for (key, workflow) in runningWorkflows.copy().items():
         if key not in existingJobsInDb:
-            killJob(workflow['jobtype'], workflow['jobid'])
+            removeJob(workflow['jobtype'], workflow['jobid'])
 
 def ensureCorrectColumns(data):
     keys = [k for k in data.keys()]
@@ -106,6 +106,7 @@ def getResponseLinks(type, jobId):
     return {
             'get_status': '/api/jobStatus/{}/{}'.format(type, jobId),
             'kill_job': '/api/killJob/{}/{}'.format(type, jobId),
+            'remove_job': '/api/removeJob/{}/{}'.format(type, jobId),
             'restart_job': '/api/restartJob/{}/{}'.format(type, jobId)
     }
 
@@ -118,23 +119,23 @@ def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False, insertN
     result = ensureCorrectColumns(result)
     columns = result.keys()
     values = tuple(result[column] for column in columns)
-    addCursor = getDbCursor()
-    if insertNew:
-        statement = "INSERT INTO {} (%s) VALUES %s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
-        prepared_statement = addCursor.mogrify(statement, (AsIs(', '.join(columns)), values))
-    else:
-        if len(values) > 1:
-            statement = "UPDATE {} SET (%s) = %s WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
+    with getDbCursor() as addCursor:
+        if insertNew:
+            statement = "INSERT INTO {} (%s) VALUES %s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+            prepared_statement = addCursor.mogrify(statement, (AsIs(', '.join(columns)), values))
         else:
-            statement = "UPDATE {} SET (%s) = ROW(%s) WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
-        prepared_statement = addCursor.mogrify(statement, (AsIs(', '.join(columns)), values))
-    try:
-        addCursor.execute(prepared_statement)
-        pipeline_db.commit()
-        return True
-    except:
-        pipeline_db.rollback()
-        return False
+            if len(values) > 1:
+                statement = "UPDATE {} SET (%s) = %s WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
+            else:
+                statement = "UPDATE {} SET (%s) = ROW(%s) WHERE jobid = {} AND jobtype='{}'".format(ConstantPaths.PIPELINE_JOBS_TABLE, str(jobId), type)
+            prepared_statement = addCursor.mogrify(statement, (AsIs(', '.join(columns)), values))
+        try:
+            addCursor.execute(prepared_statement)
+            pipeline_db.commit()
+            return True
+        except:
+            pipeline_db.rollback()
+            return False
 
 def processStatusToJobStatus(status):
         if status is None:
@@ -237,11 +238,11 @@ def getTrackedJobs():
 
 @app.route('/api/restartJob/<string:type>/<int:jobId>')
 def restartJob(type, jobId):
-    fetchCursor = getDbCursor()
-    statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
-    fetchCursor.execute(statement, (type, jobId))
-    result = fetchCursor.fetchone()
-    pipeline_db.commit()
+    with getDbCursor() as fetchCursor:
+        statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+        fetchCursor.execute(statement, (type, jobId))
+        result = fetchCursor.fetchone()
+        pipeline_db.commit()
 
     if not result:
         return Response(json.dumps({'error': -1}), mimetype='text/json')
@@ -272,14 +273,14 @@ def updateTaskStatus(type, jobId):
     return Response(json.dumps({'success': success }), mimetype='text/json')
 
 def getNextJobId(type):
-    fetchCursor = getDbCursor()
-    fetchCursor.execute('SELECT jobid FROM {} WHERE jobtype=%s'.format(ConstantPaths.PIPELINE_JOBS_TABLE), (type,))
-    results = fetchCursor.fetchall()
-    ids = [result['jobid'] for result in results]
-    jobId = 1
-    while jobId in ids:
-        jobId += 1
-    pipeline_db.commit()
+    with getDbCursor() as fetchCursor:
+        fetchCursor.execute('SELECT jobid FROM {} WHERE jobtype=%s'.format(ConstantPaths.PIPELINE_JOBS_TABLE), (type,))
+        results = fetchCursor.fetchall()
+        ids = [result['jobid'] for result in results]
+        jobId = 1
+        while jobId in ids:
+            jobId += 1
+        pipeline_db.commit()
     return jobId
 
 @app.route('/api/publishModel', methods=['POST'])
@@ -299,14 +300,14 @@ def runModelPublish():
 @app.route('/api/viewLogs/<string:type>/<int:jobId>')
 def viewLogs(type, jobId):
     statement = "SELECT logs FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
-    logCursor = getDbCursor()
-    logCursor.execute(statement, (type, jobId))
-    result = logCursor.fetchone()
-    if result:
-        returnValue = result['logs']
-    else:
-        returnValue = 'No logs found.'
-    pipeline_db.commit()
+    with getDbCursor() as logCursor:
+        logCursor.execute(statement, (type, jobId))
+        result = logCursor.fetchone()
+        if result:
+            returnValue = result['logs']
+        else:
+            returnValue = 'No logs found.'
+        pipeline_db.commit()
     return "<pre>{}</pre>".format(returnValue)
 
 @app.route('/api/jobStatus/<string:type>/<int:jobId>')
@@ -339,23 +340,45 @@ def cleanJobs(type, forcekill):
         if forcekill or jobStatus != StatusCode.RUNNING:
             if jobStatus == StatusCode.RUNNING:
                 killed += 1
-            killJob(type, workflow['jobid'])
+            removeJob(type, workflow['jobid'])
             runningWorkflows.pop(key, -1)
 
     return Response(json.dumps({ 'jobs_killed': killed, 'jobs_cleaned': firstSize - len(runningWorkflows) }), mimetype='text/json')
 
+@app.route('/api/removeJob/<string:type>/<int:jobId>')
+def removeJob(type, jobId):
+    with getDbCursor() as fetchCursor:
+        statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+        fetchCursor.execute(statement, (type, jobId))
+        try:
+            result = fetchCursor.fetchone()
+            pipeline_db.commit()
+        except:
+            result = None
+            pipeline_db.rollback()
+
+    if not result:
+        return Response(json.dumps({'error': -1}), mimetype='text/json')
+    
+    if result['machinename'] == HOSTNAME and result['executorip'] == socket.gethostbyname(HOSTNAME):
+        killJob(type, jobId)
+        removeQuiet(getJobParamFilename(type, jobId))
+        deleteJobFromDb(type, jobId)
+    else:
+        return requests.get("http://{}/api/removeJob/{}/{}".format(result['executorip'], type, jobId)).content
+
 @app.route('/api/killJob/<string:type>/<int:jobId>')
 def killJob(type, jobId):
     key = "{}_{}".format(type, jobId)
-    fetchCursor = getDbCursor()
-    statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
-    fetchCursor.execute(statement, (type, jobId))
-    try:
-        result = fetchCursor.fetchone()
-        pipeline_db.commit()
-    except:
-        result = None
-        pipeline_db.rollback()
+    with getDbCursor() as fetchCursor:
+        statement = "SELECT machinename, executorip FROM {} WHERE jobtype=%s AND jobid=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+        fetchCursor.execute(statement, (type, jobId))
+        try:
+            result = fetchCursor.fetchone()
+            pipeline_db.commit()
+        except:
+            result = None
+            pipeline_db.rollback()
 
     if not result:
         return Response(json.dumps({'error': -1}), mimetype='text/json')
@@ -378,8 +401,6 @@ def killJob(type, jobId):
                 ret['jobstatus'] = StatusCode.ALREADY_COMPLETE
             else:
                 ret['jobstatus'] = StatusCode.FAILED
-        removeQuiet(getJobParamFilename(type, jobId))
-        deleteJobFromDb(type, jobId)
         runningWorkflows.pop(key, -1)
         return Response(json.dumps(ret), mimetype='text/json')
     else:
