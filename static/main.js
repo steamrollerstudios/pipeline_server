@@ -121,7 +121,7 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
         <div class="cell header">Job Name</div>
         <div class="cell header">Type</div>
         <div class="cell header">Username</div>
-        <div class="cell header">Most Recent Step</div>
+        <div class="cell header">Step Status</div>
         <div class="cell header">Machine</div>
     `;
     for (let workflow of Object.values(json)) {
@@ -132,7 +132,7 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${capitalize(workflow.jobname)}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${capitalize(workflow.jobtype)}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.triggeredby}</div>
-            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.taskstatus}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.taskstatus?.[0]}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
     }

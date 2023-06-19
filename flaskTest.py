@@ -95,7 +95,8 @@ def getUpdatedDefaultWorkflow(type, jobId, data):
         'processstatus': None,
         'machinename': HOSTNAME,
         'triggeredby': 'Anonymous',
-        'taskstatus': 'Success - Job Starting...',
+        'taskstatus': ['Job Starting...'],
+        'luigistatus': None,
         'executorip': '0.0.0.0',
         'logs': None
     }
@@ -152,13 +153,13 @@ def getStatus(key):
     if key not in runningWorkflows:
         return -1
     elif 'process' not in runningWorkflows[key] or runningWorkflows[key]['process'] is None:
-        return runningWorkflows[key]['jobstatus'] if runningWorkflows[key]['taskstatus'].startswith('Success') else -2
+        return runningWorkflows[key]['jobstatus'] if runningWorkflows[key]['luigistatus'] == 1 else -2
     else:
         status = runningWorkflows[key]['process'].poll()
         jobStatus = processStatusToJobStatus(status)
         runningWorkflows[key]['jobstatus'] = jobStatus
         updateRemoteWorkflowInfo(type, jobId, { 'processstatus': status, 'jobstatus': jobStatus })
-        return jobStatus if status != 0 else 1 if runningWorkflows[key]['taskstatus'].startswith('Success') else -2
+        return jobStatus if status != 0 else 1 if runningWorkflows[key]['luigistatus'] == 1 else -2
 
 def getJobParamFilename(type, jobId):
     if type == 'model':
@@ -265,12 +266,26 @@ def restartJob(type, jobId):
     else:
         return requests.get("http://{}/api/restartJob/{}/{}".format(result['executorip'], type, jobId)).content
 
-@app.route('/api/updateTaskStatus/<string:type>/<int:jobId>', methods=['POST'])
-def updateTaskStatus(type, jobId):
-    statusData = {
-        'taskstatus': request.json['taskstatus']
-    }
-    success = updateRemoteWorkflowInfo(type, jobId, statusData)
+@app.route('/api/appendTaskStatus/<string:type>/<int:jobId>', methods=['POST'])
+def appendTaskStatus(type, jobId):
+    success = False
+    with getDbCursor() as updateCursor:
+        statement = "UPDATE {} SET taskstatus = array_append(taskstatus, %s) WHERE jobid=%s AND jobtype=%s".format(ConstantPaths.PIPELINE_JOBS_TABLE)
+        try:
+            updateCursor.execute(statement, (request.json['taskstatus'], jobId, type))
+            pipeline_db.commit()
+            success = True
+        except Exception as e:
+            pipeline_db.rollback()
+            success = False
+
+    return Response(json.dumps({'success': success }), mimetype='text/json')
+
+@app.route('/api/updateLuigiStatus/<string:type>/<int:jobId>', methods=['POST'])
+def updateLuigiStatus(type, jobId):
+    success = updateRemoteWorkflowInfo(type, jobId, {
+        'luigistatus': request.json['luigistatus']
+    })
     return Response(json.dumps({'success': success }), mimetype='text/json')
 
 def getNextJobId(type):
@@ -447,7 +462,7 @@ def updateRemoteJobStatus(type, jobId, processStatus, fullLogs = None):
     if processStatus != 0:
         status = processStatusToJobStatus(processStatus)
     else:
-        status = 0 if runningWorkflows["{}_{}".format('model', jobId)]['taskstatus'].startswith('Success') else -2
+        status = 0 if runningWorkflows["{}_{}".format('model', jobId)]['luigistatus'] == 1 else -2
     updateRemoteWorkflowInfo(type, jobId, {'jobstatus': status, 'processstatus': processStatus, 'logs': fullLogs})
 
 def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown Task'):
@@ -466,7 +481,8 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
         'jobstatus': 0,
         'processstatus': None,
         'triggeredby': username,
-        'taskstatus': 'Success - Job Starting...',
+        'taskstatus': ['Job Starting...'],
+        'luigistatus': None,
         'executorip': socket.gethostbyname(HOSTNAME),
         'logs': None
     }
