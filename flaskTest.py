@@ -115,7 +115,7 @@ def updateRemoteWorkflowInfo(type, jobId, data, includeDefaults = False, insertN
         result = getUpdatedDefaultWorkflow(type, jobId, data)
     else:
         result = dict()
-        result.update(data)
+    result.update(data)
     result = ensureCorrectColumns(result)
     columns = result.keys()
     values = tuple(result[column] for column in columns)
@@ -186,6 +186,7 @@ def indexTest():
         "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
         "userId": 4994,
         "taskId": 68670,
+        "taskName": "serrano ship",
         "username": "local.kevin.burns",
         "checkInComment": "Testing full publish pipeline from JSON data"
     }
@@ -293,7 +294,7 @@ def runModelPublish():
     with open(jobFile, 'w') as f:
         json.dump(request.json, f)
 
-    ret = triggerModelPublish(jobId, request.json['repo'], request.json['username'])
+    ret = triggerModelPublish(jobId, request.json['repo'], request.json['username'], request.json['taskName'])
 
     return Response(json.dumps(ret), mimetype='text/json')
 
@@ -449,7 +450,7 @@ def updateRemoteJobStatus(type, jobId, processStatus, fullLogs = None):
         status = 0 if runningWorkflows["{}_{}".format('model', jobId)]['taskstatus'].startswith('Success') else -2
     updateRemoteWorkflowInfo(type, jobId, {'jobstatus': status, 'processstatus': processStatus, 'logs': fullLogs})
 
-def triggerModelPublish(jobId, repo, username = 'Anonymous'):
+def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown Task'):
     cwd = os.getcwd()
     os.chdir(repo)
     plastic = Workspace()
@@ -460,7 +461,7 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous'):
         'process': None,
         'jobid': jobId,
         'jobtype': 'model',
-        'jobname': 'model_publish',
+        'jobname': taskname + ' - Publish',
         'machinename': HOSTNAME,
         'jobstatus': 0,
         'processstatus': None,
