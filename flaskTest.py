@@ -361,9 +361,10 @@ def removeJob(type, jobId):
         return Response(json.dumps({'error': -1}), mimetype='text/json')
     
     if result['machinename'] == HOSTNAME and result['executorip'] == socket.gethostbyname(HOSTNAME):
-        killJob(type, jobId)
+        res = killJob(type, jobId)
         removeQuiet(getJobParamFilename(type, jobId))
         deleteJobFromDb(type, jobId)
+        return res
     else:
         return requests.get("http://{}/api/removeJob/{}/{}".format(result['executorip'], type, jobId)).content
 

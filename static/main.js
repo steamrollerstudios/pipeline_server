@@ -16,20 +16,19 @@ const capitalize = str => {
 const killJob = async (type, jobId) => {
     const response = await fetch(`/api/killJob/${type}/${jobId}`);
     const json = await response.json();
-    await loadJobList();
+    await loadJobList(false);
 }
 
 const removeJob = async (type, jobId) => {
     const response = await fetch(`/api/removeJob/${type}/${jobId}`);
     const json = await response.json();
-    await loadJobList();
+    await loadJobList(false);
 }
 
 const restartJob = async (type, jobId) => {
     const response = await fetch(`/api/restartJob/${type}/${jobId}`);
     const json = await response.json();
-    console.log(json);
-    await loadJobList();
+    await loadJobList(false);
 }
 
 const viewLogs = async (type, jobId) => {
@@ -97,9 +96,15 @@ const clearContextMenu = () => {
 }
 document.addEventListener('click', clearContextMenu);
 
-const loadJobList = async () => {
+const loadJobList = async (ignoreIfContextMenuOpen = true) => {
     const response = await fetch('/api/getTrackedJobs');
     const json = await response.json();
+    const menu = document.getElementById('actionMenu');
+    console.log('Display = ',  window.getComputedStyle(menu).display)
+    if (ignoreIfContextMenuOpen && window.getComputedStyle(menu).display !== 'none') {
+        return;
+    }
+    console.log('updating')
     mainDiv.innerHTML = '';
     let output = `
     <div class="row">
@@ -132,7 +137,6 @@ const loadJobList = async () => {
     }
 }
 
-loadJobList();
 let reloadTimer = null;
 
 loadJobList();
