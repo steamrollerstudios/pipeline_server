@@ -9,6 +9,8 @@ const Status = {
     '-2': 'FAILED'
 }
 
+let updateQueued = false;
+
 const capitalize = str => {
     return str.split(/[ _]/g).map(word => word[0].toUpperCase() + word.slice(1).toLowerCase()).join(' ');
 }
@@ -93,6 +95,9 @@ const clearContextMenu = () => {
     for (let cell of cells) {
         cell.classList.remove('selected');
     }
+    if (updateQueued) {
+        loadJobList();
+    }
 }
 document.addEventListener('click', clearContextMenu);
 
@@ -102,8 +107,10 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
     const menu = document.getElementById('actionMenu');
     console.log('Display = ',  window.getComputedStyle(menu).display)
     if (ignoreIfContextMenuOpen && window.getComputedStyle(menu).display !== 'none') {
+        updateQueued = true;
         return;
     }
+    updateQueued = false;
     console.log('updating')
     mainDiv.innerHTML = '';
     let output = `
