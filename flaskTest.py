@@ -505,4 +505,5 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
     }
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    if  os.environ.get('FLASK_DEV_SERVER', False):
+        app.run(host='0.0.0.0', port=5000, debug=True)
