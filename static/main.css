@@ -55,3 +55,24 @@
 .cell.selected {
     filter: brightness(75%);
 }
+
+#dialogWrapper {
+    position: relative;
+}
+#taskStatusDialog {
+    position: absolute;
+    top: 5em;
+    text-align: center;
+    margin-top: 0;
+}
+#taskStatusDialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(0.5px);
+}  
+#taskStatusList {
+    padding: 4px;
+}
+#taskStatusTitle {
+    font-size: 1.1em;
+    font-weight: bold;
+}

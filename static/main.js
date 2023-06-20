@@ -43,6 +43,13 @@ const menuHandler = (ev, jobtype, jobid, jobstatus) => {
     const newKillLink = killLink.cloneNode(true);
     killLink.replaceWith(newKillLink);
 
+    const taskStatus =  document.getElementById('actionMenu_viewTaskStatus');
+    const newTaskStatus = taskStatus.cloneNode(true);
+    taskStatus.replaceWith(newTaskStatus);
+    newTaskStatus.addEventListener('click', () => {
+        showTaskStatusDialog(jobtype, jobid)
+    })
+
     if (jobstatus != 0 && jobstatus !== null) {
         newKillLink.textContent ='Remove Job';
         newKillLink.addEventListener('click', () => {
@@ -85,10 +92,24 @@ const menuHandler = (ev, jobtype, jobid, jobstatus) => {
     menu.style.top = `${ev.pageY}px`;
     menu.style.display = 'grid';
 
-    // console.log(jobname, jobid, jobstatus);
     ev.preventDefault();
     return false;
 }
+
+let showingTaskStatusOf = {
+    jobtype: null,
+    jobid: -1,
+    statuslist: []
+}
+const showTaskStatusDialog = async (jobtype, jobid) => {
+    showingTaskStatusOf = {
+        jobtype,
+        jobid
+    };
+    await loadJobList(false);
+    document.getElementById('taskStatusDialog').showModal();
+}
+
 const clearContextMenu = () => {
     document.getElementById('actionMenu').style.display = 'none';
     const cells = document.querySelectorAll('.cell[data-id][data-type]');
@@ -105,13 +126,11 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
     const response = await fetch('/api/getTrackedJobs');
     const json = await response.json();
     const menu = document.getElementById('actionMenu');
-    console.log('Display = ',  window.getComputedStyle(menu).display)
     if (ignoreIfContextMenuOpen && window.getComputedStyle(menu).display !== 'none') {
         updateQueued = true;
         return;
     }
     updateQueued = false;
-    console.log('updating')
     mainDiv.innerHTML = '';
     let output = `
     <div class="row">
@@ -121,10 +140,14 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
         <div class="cell header">Job Name</div>
         <div class="cell header">Type</div>
         <div class="cell header">Username</div>
-        <div class="cell header">Step Status</div>
+        <div class="cell header">Last Step Status</div>
         <div class="cell header">Machine</div>
     `;
     for (let workflow of Object.values(json)) {
+        if (workflow.jobtype === showingTaskStatusOf.jobtype && workflow.jobid === showingTaskStatusOf.jobid) {
+            document.getElementById('taskStatusTitle').textContent = `${capitalize(workflow.jobname)} (${workflow.jobid})`;
+            document.getElementById('taskStatusList').textContent = workflow.taskstatus.join('\n');
+        }
         output += `
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell bold ${workflow.jobstatus < 0 ? 'redbg white' : workflow.jobstatus > 0 ? 'greenbg white' : 'bluebg'}">${capitalize(Status[workflow.jobstatus])}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.jobid}</div>
@@ -132,7 +155,7 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${capitalize(workflow.jobname)}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${capitalize(workflow.jobtype)}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.triggeredby}</div>
-            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.taskstatus?.[0]}</div>
+            <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.taskstatus?.at(-1)}</div>
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell">${workflow.machinename} (${workflow.executorip})</div>
         `;
     }

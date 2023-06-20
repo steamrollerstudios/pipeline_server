@@ -12,9 +12,19 @@
     <input type="checkbox" id="autoReload" checked><label for="autoReload">Auto-Reload List</label>
     <div id="main">Loading task list...</div>
     <div id="actionMenu">
-        <div id="actionMenu_kill" data-id="0">Kill</div>
-        <div id="actionMenu_restart" data-id="0">Restart</div>
-        <div id="actionMenu_viewLogs" data-id="0">View Logs</div>
+        <div id="actionMenu_kill">Kill</div>
+        <div id="actionMenu_restart">Restart</div>
+        <div id="actionMenu_viewLogs">View Logs</div>
+        <div id="actionMenu_viewTaskStatus">Detailed Status</div>
+    </div>
+    <div id="dialogWrapper">
+        <dialog id="taskStatusDialog">
+            <div id="taskStatusTitle">(No Job Selected)</div>
+            <pre id="taskStatusList">(No Status Reported)</pre>
+            <form method="dialog">
+                <button>Close</button>
+            </form>
+        </dialog>
     </div>
 </body>
 </html>
