@@ -17,6 +17,8 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.extensions import AsIs
 
+IS_DEV_ENVIRONMENT = bool(os.environ.get('FLASK_DEV_SERVER', False))
+
 app = Flask(__name__)
 CORS(app)
 
@@ -176,53 +178,54 @@ def removeQuiet(fn):
 def taskUI():
     return render_template('index.html')
 
-@app.route('/test')
-def indexTest():
-    # This is just a test page to allow me to send arbitrary requests to the actual publish route
-    data = {
-        "mayaFile": "serrano_flask_publish.ma",
-        "workspacePath": "D:\\steamroller.pipelinetesting\\test\\modelPublish",
-        "repo": "D:\\steamroller.pipelinetesting",
-        "assetName": "Serrano",
-        "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
-        "userId": 4994,
-        "taskId": 68670,
-        "taskName": "serrano ship",
-        "username": "local.kevin.burns",
-        "checkInComment": "Testing full publish pipeline from JSON data"
-    }
-    output = '<form id="publishForm">'
-    
-    for key, val in data.items():
-        if key == 'publishNotes':
-            output += '<textarea name="{}">{}</textarea>'.format(key, val)
-        else:
-            output += '<input type="{}" name="{}" value="{}">'.format('text' if isinstance(val, str) else 'number', key, val)
-    output += '<button>Submit</button></form>'
-    output += '''
-    <script type="text/javascript">
-        const theForm = document.getElementById("publishForm");
-        theForm.addEventListener("submit", e => {
-            const current = theForm.innerHTML;
-            e.preventDefault();
-            const data = new FormData(theForm);
-            const json = Object.fromEntries(data);
-            theForm.innerHTML = 'Submitting job...';
-            fetch('/api/publishModel', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(json)
-            })
-            .then(res => res.json())
-            .then(jsonResponse => theForm.innerHTML = '<pre>' + JSON.stringify(jsonResponse) + '</pre>')
-            .catch(e => theForm.innerHTML = current);
-            return false;
-        });
-    </script>
-    '''
-    return output
+if IS_DEV_ENVIRONMENT:
+    @app.route('/test')
+    def indexTest():
+        # This is just a test page to allow me to send arbitrary requests to the actual publish route
+        data = {
+            "mayaFile": "serrano_flask_publish.ma",
+            "workspacePath": "D:\\steamroller.pipelinetesting\\test\\modelPublish",
+            "repo": "D:\\steamroller.pipelinetesting",
+            "assetName": "Serrano",
+            "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
+            "userId": 4994,
+            "taskId": 68670,
+            "taskName": "serrano ship",
+            "username": "local.kevin.burns",
+            "checkInComment": "Testing full publish pipeline from JSON data"
+        }
+        output = '<form id="publishForm">'
+        
+        for key, val in data.items():
+            if key == 'publishNotes':
+                output += '<textarea name="{}">{}</textarea>'.format(key, val)
+            else:
+                output += '<input type="{}" name="{}" value="{}">'.format('text' if isinstance(val, str) else 'number', key, val)
+        output += '<button>Submit</button></form>'
+        output += '''
+        <script type="text/javascript">
+            const theForm = document.getElementById("publishForm");
+            theForm.addEventListener("submit", e => {
+                const current = theForm.innerHTML;
+                e.preventDefault();
+                const data = new FormData(theForm);
+                const json = Object.fromEntries(data);
+                theForm.innerHTML = 'Submitting job...';
+                fetch('/api/publishModel', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(json)
+                })
+                .then(res => res.json())
+                .then(jsonResponse => theForm.innerHTML = '<pre>' + JSON.stringify(jsonResponse) + '</pre>')
+                .catch(e => theForm.innerHTML = current);
+                return false;
+            });
+        </script>
+        '''
+        return output
 
 @app.route('/api/getTrackedJobs')
 def getTrackedJobs():
@@ -505,5 +508,5 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
     }
 
 if __name__ == '__main__':
-    if  os.environ.get('FLASK_DEV_SERVER', False):
+    if IS_DEV_ENVIRONMENT:
         app.run(host='0.0.0.0', port=5000, debug=True)
