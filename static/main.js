@@ -147,6 +147,7 @@ const loadJobList = async (ignoreIfContextMenuOpen = true) => {
         if (workflow.jobtype === showingTaskStatusOf.jobtype && workflow.jobid === showingTaskStatusOf.jobid) {
             document.getElementById('taskStatusTitle').textContent = `${capitalize(workflow.jobname)} (${workflow.jobid})`;
             document.getElementById('taskStatusList').textContent = workflow.taskstatus.join('\n');
+            document.getElementById('taskStatusLoading').style.display = workflow.jobstatus == 0 ? 'inline-block' : 'none';
         }
         output += `
             <div data-id="${workflow.jobid}" data-type="${workflow.jobtype}" class="cell bold ${workflow.jobstatus < 0 ? 'redbg white' : workflow.jobstatus > 0 ? 'greenbg white' : 'bluebg'}">${capitalize(Status[workflow.jobstatus])}</div>

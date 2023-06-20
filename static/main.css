@@ -71,8 +71,26 @@
 }  
 #taskStatusList {
     padding: 4px;
+    padding-bottom: 0px;
 }
 #taskStatusTitle {
     font-size: 1.1em;
     font-weight: bold;
+}
+
+@keyframes loadingDotAnim {
+    from { width: 0em; }
+    to { width: 1em; }
+}
+.loadingDots {
+    animation: 2s infinite loadingDotAnim steps(4);
+    overflow: hidden;
+    display: inline-block;
+    font-size: 2rem;
+}
+#taskStatusLoading {
+    display: none;
+}
+#taskStatusDialog button {
+    margin-top: 4px;
 }
