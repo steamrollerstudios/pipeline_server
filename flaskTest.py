@@ -474,7 +474,7 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
     plastic = Workspace()
     plastic.update_workspace(undo_pending = True)
     os.chdir(ConstantPaths.LUIGI_TASK_PATH)
-    # subprocess.run(['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)], stderr=subprocess.STDOUT, check=True)
+    # subprocess.run(['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'model_publishing', 'runTasks.py')), str(jobId)], stderr=subprocess.STDOUT, check=True)
     workflow = {
         'process': None,
         'jobid': jobId,
@@ -495,7 +495,7 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
     os.environ["PYTHONUNBUFFERED"] = "1"
     proc = threaddedExecutor(
         lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs),
-        ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'runTasks.py')), str(jobId)]
+        ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'model_publishing', 'runTasks.py')), str(jobId)]
     )
     workflow['process'] = proc
 
