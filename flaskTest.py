@@ -9,8 +9,10 @@ import socket
 from threading import Thread
 import requests
 import tempfile
+import shutil
 
 from steamroller.plasticAPI.workspace import Workspace
+from steamroller.tools.publisher import main as publishers
 
 sys.path.insert(0, r'{}\Lib\site-packages'.format(os.environ['CONDA_PREFIX']))
 import psycopg2
@@ -184,8 +186,8 @@ if IS_DEV_ENVIRONMENT:
         # This is just a test page to allow me to send arbitrary requests to the actual publish route
         data = {
             "mayaFile": "serrano_flask_publish.ma",
-            "workspacePath": "D:\\steamroller.pipelinetesting\\test\\modelPublish",
-            "repo": "D:\\steamroller.pipelinetesting",
+            "workspacePath": "D:\\Projects\\Steamroller\\steamroller.devtestproject\\assets\TestAssetForNoah\\modeling\\default",
+            "repo": "D:\\projects\\Steamroller\\steamroller.devtestproject",
             "assetName": "Serrano",
             "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
             "userId": 4994,
@@ -426,6 +428,20 @@ def killJob(type, jobId):
     else:
         return requests.get("http://{}/api/killJob/{}/{}".format(result['executorip'], type, jobId)).content
 
+def threaddedModelExecutor(callback, jobId, *subprocessArgs, **subprocessKwargs):
+    publishManager = publishers.MayaModelPublisher(jobId)
+    if type(subprocessArgs[0]) == list:
+        subprocessArgs[0].append(publishManager.tempDirectory)
+        subprocessArgs[0].append(publishManager.paramFile)
+    paramPath = getJobParamFilename('model', jobId)
+    paramFilePath = os.path.abspath(os.path.join(publishManager.tempDirectory, publishManager.paramFile))
+    shutil.copy(paramPath, paramFilePath)
+    def cleanAndCallback(status, fullLogs):
+        publishManager.cleanTemps()
+        callback(status, fullLogs)
+
+    return threaddedExecutor(cleanAndCallback, *subprocessArgs, **subprocessKwargs)
+
 def threaddedExecutor(callback, *subprocessArgs, **subprocessKwargs):
     logFile = tempfile.TemporaryFile(mode='w+', encoding='latin1')
     errLogFile = tempfile.TemporaryFile(mode='w+', encoding='latin1')
@@ -493,8 +509,9 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
     runningWorkflows["{}_{}".format('model', jobId)] = workflow
 
     os.environ["PYTHONUNBUFFERED"] = "1"
-    proc = threaddedExecutor(
+    proc = threaddedModelExecutor(
         lambda status, fullLogs: updateRemoteJobStatus('model', jobId, status, fullLogs),
+        jobId,
         ['mayapy', os.path.abspath(os.path.join(ConstantPaths.LUIGI_TASK_PATH, 'model_publishing', 'runTasks.py')), str(jobId)]
     )
     workflow['process'] = proc
@@ -509,4 +526,4 @@ def triggerModelPublish(jobId, repo, username = 'Anonymous', taskname = 'Unknown
 
 if __name__ == '__main__':
     if IS_DEV_ENVIRONMENT:
-        app.run(host='0.0.0.0', port=5000, debug=True)
+        app.run(host='0.0.0.0', port=8080, debug=True)
