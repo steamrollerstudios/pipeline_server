@@ -185,7 +185,7 @@ if IS_DEV_ENVIRONMENT:
     def indexTest():
         # This is just a test page to allow me to send arbitrary requests to the actual publish route
         data = {
-            "mayaFile": "serrano_flask_publish.ma",
+            "mayaFile": "serrano_flask_test.ma",
             "workspacePath": "D:\\Projects\\Steamroller\\steamroller.devtestproject\\assets\TestAssetForNoah\\modeling\\default",
             "repo": "D:\\projects\\Steamroller\\steamroller.devtestproject",
             "assetName": "Serrano",
