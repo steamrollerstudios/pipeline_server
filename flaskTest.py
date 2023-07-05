@@ -186,12 +186,12 @@ if IS_DEV_ENVIRONMENT:
         # This is just a test page to allow me to send arbitrary requests to the actual publish route
         data = {
             "mayaFile": "serrano_flask_test.ma",
-            "workspacePath": "D:\\Projects\\Steamroller\\steamroller.devtestproject\\assets\TestAssetForNoah\\modeling\\default",
+            "workspacePath": "D:\\Projects\\Steamroller\\steamroller.devtestproject\\assets\\TestAssetForNoah\\modeling\\default",
             "repo": "D:\\projects\\Steamroller\\steamroller.devtestproject",
             "assetName": "Serrano",
             "publishNotes": "Some things have changed submitting on Flask; see below!\n• Some geo combining and renaming per Surfacing requests!\n• Still waiting on notes from Christian/Rigging team!\n• Tech checked & cleaned file",
-            "userId": 4994,
-            "taskId": 68670,
+            "userId": 4897,
+            "taskId": 52215,
             "taskName": "serrano ship",
             "username": "local.kevin.burns",
             "checkInComment": "Testing full publish pipeline from JSON data"
